@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.workers.dev; object-src 'none'; base-uri 'self'; form-action 'self';">
+<title>Prompt Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="bg-scene" aria-hidden="true">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="bg-glow bg-glow-3"></div>
+  <div class="bg-grid"></div>
+</div>
+
+<header class="site-header">
+  <p class="eyebrow">Personal · Private · Yours</p>
+  <h1 class="site-title">Prompt Library</h1>
+  <p class="subtitle">Prompts for class, email, and everything in between — organized by skill and by model.</p>
+</header>
+
+<main>
+  <section class="controls">
+    <div class="field" id="skill-dropdown"></div>
+    <div class="field" id="llm-dropdown"></div>
+    <div class="field field-search">
+      <label for="search-input">Search</label>
+      <div class="search-shell">
+        <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <input id="search-input" type="text" placeholder="Search titles and prompt text...">
+      </div>
+    </div>
+  </section>
+
+  <div class="controls-actions">
+    <button id="add-prompt-btn" class="cta-button" type="button">
+      <span class="plus-icon">+</span> Add a prompt
+    </button>
+    <button id="export-btn" class="ghost-button" type="button">Export prompts.json</button>
+  </div>
+
+  <div class="result-row">
+    <p id="result-count" class="result-count"></p>
+    <div class="result-bar"><div id="result-bar-fill" class="result-bar-fill"></div></div>
+  </div>
+
+  <section id="prompt-grid" class="prompt-grid"></section>
+
+  <div id="empty-state" class="empty-state" hidden>
+    <div class="empty-icon">✦</div>
+    <p>No prompts match those filters yet.</p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <p>Add new prompts with the wizard above, or by editing <code>data/prompts.json</code> directly.</p>
+</footer>
+
+<!-- Add-a-prompt wizard -->
+<div id="wizard-overlay" class="wizard-overlay" hidden>
+  <div class="wizard-modal" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
+    <button class="wizard-close" id="wizard-close" type="button" aria-label="Close">×</button>
+    <h2 id="wizard-title" class="wizard-title">Add a prompt</h2>
+
+    <div class="wizard-steps">
+      <div class="wizard-progress-line"><div id="wizard-progress-fill" class="wizard-progress-fill"></div></div>
+      <span class="wizard-dot" data-step="0"></span>
+      <span class="wizard-dot" data-step="1"></span>
+      <span class="wizard-dot" data-step="2"></span>
+      <span class="wizard-dot" data-step="3"></span>
+      <span class="wizard-dot" data-step="4"></span>
+    </div>
+
+    <div id="wizard-body" class="wizard-body"></div>
+    <p id="wizard-error" class="wizard-error" hidden></p>
+
+    <div class="wizard-actions">
+      <button id="wizard-back" class="wizard-btn wizard-btn-ghost" type="button">Back</button>
+      <button id="wizard-next" class="wizard-btn wizard-btn-primary" type="button">Next</button>
+    </div>
+  </div>
+</div>
+
+<!-- Security log panel -->
+<div id="security-overlay" class="wizard-overlay" hidden>
+  <div class="wizard-modal security-modal" role="dialog" aria-modal="true" aria-labelledby="security-title">
+    <button class="wizard-close" id="security-close" type="button" aria-label="Close">×</button>
+    <h2 id="security-title" class="wizard-title">Security log</h2>
+    <p class="security-note">
+      Local, basic checks only — blocked submissions and obvious script-injection attempts made
+      through this browser. Nothing is sent anywhere automatically.
+    </p>
+    <div id="security-log-list" class="security-log-list"></div>
+    <div class="wizard-actions">
+      <button id="security-clear" class="wizard-btn wizard-btn-ghost" type="button">Clear log</button>
+      <button id="security-export" class="wizard-btn wizard-btn-primary" type="button">Export log</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="script.js"></script>
+</body>
+</html>
