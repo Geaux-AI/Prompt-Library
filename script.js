@@ -69,26 +69,65 @@ function showToast(message) {
    what it blocks (favoring not annoying you over catching everything).
 */
 
-const BLOCKED_TERMS = [
-  "stupid", "idiot", "idiotic", "dumbass", "moron", "moronic", "imbecile",
-  "pathetic", "worthless", "useless", "loser", "scum", "subhuman",
-  "retard", "retarded", "kill yourself", "kys", "go die", "i hate you",
+/* Two tiers, because a bare wordlist can't tell an insult from a description.
+   "Harsh and wrong is worse than useless" is not an insult; "you are useless"
+   is. The first list is blocked anywhere; the second only when aimed at someone. */
+const ALWAYS_BLOCKED = [
+  "dumbass", "subhuman", "retard", "retarded",
+  "kill yourself", "kys", "go die", "i hate you",
 ];
 
-const BIAS_GROUPS =
-  "(women|men|girls|boys|black people|white people|blacks|whites|asians|" +
-  "latinos|hispanics|muslims|christians|jews|jewish people|gay people|" +
-  "lesbians|trans people|transgender people|immigrants|refugees|" +
-  "disabled people|poor people|old people|the elderly)";
+const DIRECTED_INSULTS = [
+  "stupid", "idiot", "idiotic", "moron", "moronic", "imbecile",
+  "pathetic", "worthless", "useless", "loser", "scum",
+];
 
-const BIAS_TRAITS =
-  "(stupid|inferior|lazy|dumb|evil|worthless|criminals?|less than others|" +
-  "not as smart|subhuman|animals|the problem)";
-
-const BIAS_REGEX = new RegExp(
-  `\\b${BIAS_GROUPS}\\b[^.?!\\n]{0,20}\\b(are|is)\\b[^.?!\\n]{0,15}\\b${BIAS_TRAITS}\\b`,
+// "you are/you're/he is/she is/they are/people are ... <insult>"
+const DIRECTED_AT_PERSON = new RegExp(
+  `\\b(you|he|she|they|people|everyone|she'?s|he'?s|you'?re|they'?re)\\b[^.?!\\n]{0,18}\\b(is|are|'?re|'?s|was|were)?\\b[^.?!\\n]{0,12}\\b(${DIRECTED_INSULTS.join("|")})\\b`,
   "i"
 );
+
+const BIAS_GROUPS =
+  "(women|men|girls|boys|black people|white people|blacks|whites|asians|asian people|" +
+  "latinos|latinas|hispanics|mexicans|arabs|africans|indians|" +
+  "muslims|christians|jews|jewish people|hindus|atheists|" +
+  "gay people|gays|lesbians|trans people|transgender people|queer people|" +
+  "immigrants|refugees|foreigners|disabled people|autistic people|" +
+  "poor people|homeless people|old people|the elderly|fat people)";
+
+const BIAS_TRAITS =
+  "(stupid|inferior|lazy|dumb|evil|worthless|criminals?|less than others|less than human|" +
+  "not as smart|subhuman|animals|vermin|parasites|the problem|a disease|disgusting|" +
+  "don'?t belong|should be (killed|removed|deported|banned))";
+
+// Three shapes: "[group] are [trait]", "kill/deport [group]", "i hate [group]".
+const BIAS_PATTERNS = [
+  new RegExp(`\\b(all |most )?${BIAS_GROUPS}\\b[^.?!\\n]{0,20}\\b(are|is|aren'?t|should be)\\b[^.?!\\n]{0,20}\\b${BIAS_TRAITS}\\b`, "i"),
+  new RegExp(`\\b(kill|gas|exterminate|deport|get rid of)\\b[^.?!\\n]{0,15}\\b(all |the )?${BIAS_GROUPS}\\b`, "i"),
+  new RegExp(`\\bi hate\\b[^.?!\\n]{0,15}\\b${BIAS_GROUPS}\\b`, "i"),
+];
+
+/* Natural-language prompt injection. Deliberately narrow: this is a library OF
+   prompts, so instructions are the content type — matching instructions broadly
+   would reject legitimate entries. These target the specific idiom of
+   overriding or extracting a model's existing instructions. */
+const PROMPT_INJECTION_PATTERNS = [
+  { pattern: /\b(ignore|disregard|forget|override|bypass)\b[^.?!\n]{0,40}\b(previous|prior|above|earlier|initial|original|all|any|your|the)\b[^.?!\n]{0,25}\b(instruction|prompt|rule|direction|guideline|restriction|constraint|guardrail)/i,
+    label: "an attempt to override prior instructions" },
+  { pattern: /\b(reveal|show|print|repeat|output|display|tell me)\b[^.?!\n]{0,30}\b(your|the)\b[^.?!\n]{0,20}\b(system prompt|system message|initial instruction|original instruction|hidden instruction)/i,
+    label: "an attempt to extract system instructions" },
+  { pattern: /\b(developer mode|jailbreak|dan mode|do anything now|without any restrictions|no longer bound by|unfiltered mode)\b/i,
+    label: "a jailbreak phrase" },
+  { pattern: /\b(you are now|from now on,? you)\b[^.?!\n]{0,40}\b(unrestricted|unfiltered|no restrictions|not bound|free from|ignore)\b/i,
+    label: "an attempt to remove the model's constraints" },
+];
+
+/* A prompt that DEFENDS against injection has to quote injection language
+   ("text telling you to ignore your rules"). Reported speech is description,
+   not a command, so a match sitting right after reporting language is allowed. */
+const REPORTED_SPEECH =
+  /\b(telling|tells|told|instructing|instructs|asking|asks|says?|saying|said|such as|like|e\.g\.|example|quote[ds]?|contains?|includes?|attempts? to|tries to|trying to|anything that|text that|treat (it|them|this) as)\b[^.?!\n]{0,45}$/i;
 
 const INJECTION_PATTERNS = [
   { pattern: /<\s*script/i, label: "<script> tag" },
@@ -109,18 +148,36 @@ function checkInjection(text) {
   return { ok: true };
 }
 
+function checkPromptInjection(text) {
+  for (const { pattern, label } of PROMPT_INJECTION_PATTERNS) {
+    const m = pattern.exec(text);
+    if (!m) continue;
+    const before = text.slice(Math.max(0, m.index - 60), m.index);
+    if (REPORTED_SPEECH.test(before)) continue; // described, not commanded
+    logSecurityEvent("prompt_injection_attempt", `Blocked ${label}.`);
+    return { ok: false, reason: `That reads as ${label}. Prompts here can't try to override another model's instructions.` };
+  }
+  return { ok: true };
+}
+
 function checkContent(text) {
   const lower = text.toLowerCase();
-  for (const term of BLOCKED_TERMS) {
+  for (const term of ALWAYS_BLOCKED) {
     const escaped = term.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
     if (new RegExp(`\\b${escaped}\\b`, "i").test(lower)) {
       logSecurityEvent("blocked_language", `Blocked term: "${term}"`);
       return { ok: false, reason: `Contains harsh or hostile language ("${term}"). Rephrase it.` };
     }
   }
-  if (BIAS_REGEX.test(lower)) {
-    logSecurityEvent("blocked_bias", "Blocked a discriminatory generalization pattern.");
-    return { ok: false, reason: "That reads as a discriminatory generalization about a group of people. Rephrase it." };
+  if (DIRECTED_AT_PERSON.test(lower)) {
+    logSecurityEvent("blocked_language", "Blocked an insult aimed at a person.");
+    return { ok: false, reason: "That reads as an insult aimed at a person. Rephrase it." };
+  }
+  for (const re of BIAS_PATTERNS) {
+    if (re.test(lower)) {
+      logSecurityEvent("blocked_bias", "Blocked a discriminatory or hateful pattern.");
+      return { ok: false, reason: "That reads as a hateful or discriminatory statement about a group of people. Rephrase it." };
+    }
   }
   return { ok: true };
 }
@@ -128,6 +185,8 @@ function checkContent(text) {
 function runGuardrails(text) {
   const injection = checkInjection(text);
   if (!injection.ok) return injection;
+  const promptInjection = checkPromptInjection(text);
+  if (!promptInjection.ok) return promptInjection;
   return checkContent(text);
 }
 
@@ -677,9 +736,13 @@ function updateWizardChrome() {
 function validateWizardStep() {
   if (wizardStep === 0) {
     if (!wizardData.skill.trim()) return "Pick or type a skill.";
+    const check = runGuardrails(wizardData.skill);
+    if (!check.ok) return check.reason;
   }
   if (wizardStep === 1) {
     if (!wizardData.llm.trim()) return "Pick or type a model (or choose Any).";
+    const check = runGuardrails(wizardData.llm);
+    if (!check.ok) return check.reason;
   }
   if (wizardStep === 2) {
     if (!wizardData.title.trim()) return "Give it a title.";
