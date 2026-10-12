@@ -72,6 +72,31 @@ function showToast(message) {
 /* Two tiers, because a bare wordlist can't tell an insult from a description.
    "Harsh and wrong is worse than useless" is not an insult; "you are useless"
    is. The first list is blocked anywhere; the second only when aimed at someone. */
+/* Slurs, base64-encoded. Encoding is not security — it's so a list of racial
+   and homophobic slurs isn't sitting in plaintext in a public repo with the
+   chapter's name on it, where it could be grepped or screenshotted out of
+   context. Decoded once at load and matched the same as any other term. */
+const SLUR_TERMS = ["bmlnZ2Vy", "bmlnZ2E=", "ZmFnZ290", "ZmFn", "dHJhbm55", "a2lrZQ==", "c3BpYw==", "d2V0YmFjaw==", "Y2hpbms=", "Z29vaw==", "cmFnaGVhZA==", "dG93ZWxoZWFk", "c2FuZG5pZ2dlcg==", "Y29vbg==", "amlnYWJvbw==", "YmVhbmVy", "cGFraQ==", "ZHlrZQ==", "cmV0YXJk"].map((w) => atob(w));
+
+/* Ordinary profanity. Separate from slurs because the bar is different: this is
+   about keeping a chapter-facing tool clean, not about hate. */
+const PROFANITY = [
+  "fuck", "fucking", "fucked", "fucker", "motherfucker",
+  "shit", "shitty", "bullshit", "bitch", "bastard",
+  "asshole", "dickhead", "cunt", "whore", "slut", "douchebag",
+];
+
+/* Hate shapes a word list misses — the words are individually innocuous. */
+const HATE_PHRASES = [
+  { pattern: /\bgo back to (your|their) (own )?(country|homeland)\b/i, label: "a xenophobic phrase" },
+  // Pejorative use only — "that's so gay". The negative lookahead keeps
+  // legitimate reference ("gay people", "gay rights") from matching.
+  { pattern: /\b(that'?s|this is|that is|it'?s|it is)\s+(so\s+|really\s+|kinda\s+|pretty\s+)?(gay|retarded)\b(?!\s+(people|person|rights|man|men|woman|women|community|marriage|couple))/i,
+    label: "a slur used as an insult" },
+  { pattern: /\b(white|racial) (power|supremacy)\b/i, label: "hate ideology" },
+  { pattern: /\b(we|they) should (be )?(gas|exterminat|lynch|purge)/i, label: "a call for violence against a group" },
+];
+
 const ALWAYS_BLOCKED = [
   "dumbass", "subhuman", "retard", "retarded",
   "kill yourself", "kys", "go die", "i hate you",
@@ -162,6 +187,28 @@ function checkPromptInjection(text) {
 
 function checkContent(text) {
   const lower = text.toLowerCase();
+
+  for (const term of SLUR_TERMS) {
+    if (new RegExp(`\\b${term}s?\\b`, "i").test(lower)) {
+      logSecurityEvent("blocked_slur", "Blocked a slur.");
+      return { ok: false, reason: "That contains a slur. This isn't the place for it." };
+    }
+  }
+
+  for (const { pattern, label } of HATE_PHRASES) {
+    if (pattern.test(lower)) {
+      logSecurityEvent("blocked_hate", `Blocked ${label}.`);
+      return { ok: false, reason: "That reads as hateful toward a group of people. Rephrase it." };
+    }
+  }
+
+  for (const term of PROFANITY) {
+    if (new RegExp(`\\b${term}\\b`, "i").test(lower)) {
+      logSecurityEvent("blocked_profanity", `Blocked profanity: "${term}"`);
+      return { ok: false, reason: `Keep it clean — "${term}" doesn't belong in a shared prompt. Rephrase it.` };
+    }
+  }
+
   for (const term of ALWAYS_BLOCKED) {
     const escaped = term.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
     if (new RegExp(`\\b${escaped}\\b`, "i").test(lower)) {
